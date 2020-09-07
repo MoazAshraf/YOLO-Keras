@@ -11,12 +11,14 @@ import numpy as np
 IMGZIP_PATH = "VOC2012/JPEG.zip"
 ANNOTATION_DIR = "VOC2012/Annotations"
 LABELS_DIR = "VOC2012/Labels"
-CLASSES_TO_NUM = {
+CLASS_TO_NUM = {
     'aeroplane': 0, 'bicycle': 1, 'bird': 2, 'boat': 3, 'bottle': 4, 'bus': 5,
     'car': 6, 'cat': 7, 'chair': 8, 'cow': 9, 'diningtable': 10, 'dog': 11,
     'horse': 12, 'motorbike': 13, 'person': 14, 'pottedplant': 15, 'sheep': 16,
     'sofa': 17, 'train': 18, 'tvmonitor': 19
 }
+
+NUM_TO_CLASS = list(CLASS_TO_NUM.keys())
 
 def open_zipfile(filepath):
     """
@@ -111,7 +113,7 @@ def preprocess_label(label, S=7, B=2, C=20):
 
     for object in label['objects']:
         # target class
-        obj_class = CLASSES_TO_NUM[object['name']]
+        obj_class = CLASS_TO_NUM[object['name']]
 
         # target bounding box coordinates and dimensions
         xmin = object['bndbox']['xmin']
@@ -146,20 +148,64 @@ def read_example(zf, imagepath):
     
     target = preprocess_label(label)
     
-    show_labelled_image(img, target)
+    show_labelled_image(np.array(img), target)
 
     img = preprocess_image(img)
 
     return img, label
 
+def box_coords_to_bounds(cell_x, cell_y, img_width, img_height, S, x, y, w, h):
+    x = (x + cell_x) * img_width / S
+    y = (y + cell_y) * img_height / S
+    w = w * img_width / S
+    h = h * img_height / S
+
+    xmin = int(np.round(x - w / 2))
+    xmax = int(np.round(x + w / 2))
+    ymin = int(np.round(y - h / 2))
+    ymax = int(np.round(y + h / 2))
+
+    return xmin, xmax, ymin, ymax
+
+def draw_label_on_image(img, target_class, box_bounds):
+    class_name = NUM_TO_CLASS[target_class]
+    xmin, xmax, ymin, ymax = box_bounds
+
+    tag_width, tag_height = len(class_name) * 10, 20
+    text_offset=8
+
+    img = cv2.rectangle(img, (xmin, ymin), (xmax, ymax), (255, 0, 0), 2)
+    img = cv2.rectangle(img, (xmin, ymin-tag_height), (xmin+tag_width, ymin), (255, 0, 0), 2)
+    img = cv2.rectangle(img, (xmin, ymin-tag_height), (xmin+tag_width, ymin), (255, 0, 0), -1)
+    img = cv2.putText(img, class_name, (xmin, ymin-tag_height+text_offset),
+                               cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+    
+    return img
+
 def show_labelled_image(img, target):
-    pass
+    img_width, img_height = img.shape[1], img.shape[0]
+
+    S = target.shape[0]
+    labelled_img = img
+    for cell_y in range(S):
+        for cell_x in range(S):
+            if target[cell_y, cell_x, 0] == 1:
+                x, y, w, h = target[cell_y,cell_x,1:5]
+                xmin, xmax, ymin, ymax = box_coords_to_bounds(cell_x, cell_y, img_width, img_height, S, x, y, w, h)
+                target_class = np.argmax(target[cell_y,cell_x,10:])
+
+                labelled_img = draw_label_on_image(labelled_img, target_class, (xmin, xmax, ymin, ymax))
+    
+    plt.imshow(labelled_img)
+    plt.show()
 
 zf = open_zipfile(IMGZIP_PATH)
 
 # convert_annotations(zf)
 
-imagepath = zf.namelist()[1000]
+# imagepath = zf.namelist()[1000]
+
+imagepath = zf.namelist()[100]
 # label = parse_annotation(file, is_imagepath=True)
 img = open_image_from_zip(zf, imagepath)
 read_example(zf, imagepath)
