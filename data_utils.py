@@ -4,6 +4,7 @@ import json
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
+import cv2
 
 
 IMAGES_ZIP_PATH = "VOC2012/JPEG.zip"
@@ -36,6 +37,36 @@ def open_example_from_zip(image_zip_file, image_filepath, labels_dir=LABELS_DIR)
     
     return image, label
 
+def draw_label_on_image(image, class_name, bndbox, color=(255, 0, 0)):
+    """
+    Draws an object label (class name and bounding box) on an image. Returns a numpy array representing the RGB image.
+    """
+
+    white = (255, 255, 255)
+
+    xmin, xmax, ymin, ymax = bndbox
+
+    tag_width, tag_height = len(class_name) * 10, 20
+    text_offset=8
+
+    image = cv2.rectangle(image, (xmin, ymin), (xmax, ymax), color, 2)
+    image = cv2.rectangle(image, (xmin, ymin-tag_height), (xmin+tag_width, ymin), color, 2)
+    image = cv2.rectangle(image, (xmin, ymin-tag_height), (xmin+tag_width, ymin), color, -1)
+    image = cv2.putText(image, class_name, (xmin, ymin-tag_height+text_offset),
+                        cv2.FONT_HERSHEY_PLAIN, 1, white, 1)
+    
+    return image
+
+def label_image(image, label):
+    """
+    Labels an image with each object class name and bounding box. Returns a numpy array representing the RGB image.
+    """
+
+    for obj in label["objects"]:
+        image = draw_label_on_image(image, obj['name'], obj['bndbox'])
+
+    return image
+
 if __name__ == "__main__":
     with zipfile.ZipFile(IMAGES_ZIP_PATH, 'r') as images_zip:
         img, label = open_example_from_zip(images_zip, "JPEG/2011_004301.jpg")
@@ -43,5 +74,6 @@ if __name__ == "__main__":
         print(img.shape)
         print(label)
 
+        img = label_image(img, label)
         plt.imshow(img)
         plt.show()

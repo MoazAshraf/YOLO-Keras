@@ -28,7 +28,7 @@ def create_object_detection_label(annot_dict):
         "objects": [
             {
                 "name": "<object-name>",
-                "bndbox": [xmin:float, xmax:float, ymin:float, ymax:float],
+                "bndbox": [xmin:int, xmax:int, ymin:int, ymax:int],
                 "difficult": <difficult:int>}
             },
             ...,
@@ -51,12 +51,12 @@ def create_object_detection_label(annot_dict):
             annot_object["bndbox"]["ymin"],
             annot_object["bndbox"]["ymax"],
             ]
-        obj["bndbox"] = [float(x) for x in obj["bndbox"]]
+        obj["bndbox"] = [round(float(x)) for x in obj["bndbox"]]
         obj["difficult"] = annot_object["difficult"] == '1'
         objects.append(obj)
 
     label = {
-        "image-size": dict(annotation["size"]),
+        "image-size": {k: int(v) for k, v in annotation["size"].items()},
         "objects": objects
     }
 
