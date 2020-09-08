@@ -1,4 +1,5 @@
 Notes
 VOC2012
 .vscode
-devenv/
+devenv
+__pycache__
