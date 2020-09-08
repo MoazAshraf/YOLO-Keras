@@ -6,8 +6,7 @@ import tensorflow as tf
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, LeakyReLU, Flatten, Dense, Reshape
 
 
-
-def create_model(input_shape=(448, 448, 3), lrelu_alpha=0.1, s=7, b=2, c=20):
+def create_model(input_shape=(448, 448, 3), lrelu_alpha=0.1, s=7, b=2, c=20, batchnorm=True):
     """
     Creates the YOLO model using tf.keras as desribed by the paper You Only Look Once.
 
