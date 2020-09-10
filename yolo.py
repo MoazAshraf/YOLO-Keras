@@ -18,6 +18,52 @@ from tensorflow.keras.layers import (
 )
 
 
+def parse_cfg(filepath):
+    """
+    Parses a configuration file into a list of dictionaries where each
+    dictionary represents a block.
+    """
+
+    cfg = []
+
+    with open(filepath) as f:
+        # current_section = None
+        for line in f:
+            line = line.strip()
+
+            # skip empty lines and comments
+            if line == '' or line.startswith('#'):
+                continue
+
+            # the start of a new section
+            if line.startswith('['):
+                section_name = line[1:-1]
+                current_section = {}
+                cfg.append((section_name, current_section))
+            else:
+                key, values = [s.strip() for s in line.split('=')]
+                values = [s.strip() for s in values.split(',')]
+
+                # parse the value
+                for i, value in enumerate(values):
+                    try:
+                        value = int(value)
+                    except ValueError:
+                        try:
+                            value = float(value)
+                        except:
+                            # string value
+                            pass
+                    values[i] = value
+
+                if len(values) == 1:
+                    values = values[0]
+                
+                current_section[key] = values
+    
+    return cfg
+
+
 def create_model(input_shape=(448, 448, 3), s=7, b=2, c=20, batchnorm=True, lrelu_alpha=0.1):
     """
     Creates the YOLO model using tf.keras as desribed by the paper You Only Look Once.
@@ -90,5 +136,6 @@ def create_model(input_shape=(448, 448, 3), s=7, b=2, c=20, batchnorm=True, lrel
     return model
 
 if __name__ == "__main__":
-    yolo_model = create_model()
-    yolo_model.summary()
+    print(parse_cfg('yolov1.cfg'))
+    # yolo_model = create_model()
+    # yolo_model.summary()
