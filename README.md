@@ -13,5 +13,14 @@ All the packages used in this project are in the [requirements.txt](requirements
 pip install -r requirements.txt
 ```
 
+## References
+- [You Only Look Once: Unified, Real-Time Object Detection](https://arxiv.org/pdf/1506.02640.pdf)
+- [https://pjreddie.com/darknet/yolov1/](https://pjreddie.com/darknet/yolov1/)
+- [github.com/qqwweee/keras-yolo3](https://github.com/qqwweee/keras-yolo3)
+- [How to implement a YOLO (v3) object detector from scratch in PyTorch: Part 2
+](https://blog.paperspace.com/how-to-implement-a-yolo-v3-object-detector-from-scratch-in-pytorch-part-2/)
+- [How to implement a YOLO (v3) object detector from scratch in PyTorch: Part 3
+](https://blog.paperspace.com/how-to-implement-a-yolo-v3-object-detector-from-scratch-in-pytorch-part-3/)
+
 ## License
 MIT License, check the [LICENSE](LICENSE) file.

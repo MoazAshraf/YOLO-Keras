@@ -2,6 +2,7 @@
 devenv
 __pycache__
 
+*.weights
+
 Notes
-yolo-paper.pdf
 VOC2012

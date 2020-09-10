@@ -18,7 +18,7 @@ from tensorflow.keras.layers import (
 )
 
 
-def create_model(input_shape=(448, 448, 3), s=7, b=2, c=20, batchnorm=True, lrelu_alpha=0.1):
+def create_model(input_shape=(448, 448, 3), s=7, b=2, c=20, batchnorm=True, leaky_alpha=0.1):
     """
     Creates the YOLO model using tf.keras as desribed by the paper You Only Look Once.
     """
@@ -28,7 +28,7 @@ def create_model(input_shape=(448, 448, 3), s=7, b=2, c=20, batchnorm=True, lrel
 
     def add_conv_layer(filters, kernel_size, strides):
         model.add(Conv2D(filters, kernel_size, strides, padding='same'))
-        model.add(LeakyReLU(alpha=lrelu_alpha))
+        model.add(LeakyReLU(alpha=leaky_alpha))
         if batchnorm:
             model.add(BatchNormalization())
     
@@ -38,12 +38,12 @@ def create_model(input_shape=(448, 448, 3), s=7, b=2, c=20, batchnorm=True, lrel
     def add_local2d_layer(filters, kernel_size, strides):
         model.add(ZeroPadding2D(padding=1))
         model.add(LocallyConnected2D(filters, kernel_size, strides))
-        model.add(LeakyReLU(alpha=lrelu_alpha))
+        model.add(LeakyReLU(alpha=leaky_alpha))
 
-    def add_dense_layer(units, lrelu_activation=False):
+    def add_dense_layer(units, leaky_activation=False):
         model.add(Dense(units))
-        if lrelu_activation:
-            model.add(LeakyReLU(alpha=lrelu_alpha))
+        if leaky_activation:
+            model.add(LeakyReLU(alpha=leaky_alpha))
 
     model.add(InputLayer(input_shape=input_shape))
 
@@ -140,7 +140,8 @@ def create_model_from_cfg(cfg):
 
     # create the model
     model = tf.keras.models.Sequential()
-
+    block_index = 0
+    
     def add_conv_or_local(is_conv, section):
         
         filters = section['filters']
@@ -153,7 +154,7 @@ def create_model_from_cfg(cfg):
             pad = (kernel_size - 1) // 2
         else:
             pad = 0
-        model.add(ZeroPadding2D(pad))
+        model.add(ZeroPadding2D(pad, name=f'pad_{block_index}'))
 
         # check batch norm
         try:
@@ -163,49 +164,56 @@ def create_model_from_cfg(cfg):
         use_bias = not batch_normalize
 
         # add the 2d convolution or locally connected layer
-        layer_class = Conv2D if is_conv else LocallyConnected2D
-        model.add(layer_class(filters, kernel_size, strides, use_bias=use_bias))
+        if is_conv:
+            layer_class = Conv2D
+            layer_name = f'conv_{block_index}'
+        else:
+            layer_class = LocallyConnected2D
+            layer_name = f'local_{block_index}'
+        model.add(layer_class(filters, kernel_size, strides, use_bias=use_bias, name=layer_name))
 
         # add batch norm layer
         if batch_normalize:
-            model.add(BatchNormalization())
+            model.add(BatchNormalization(name=f'batchnorm_{block_index}'))
 
         # add the activation
         activation = section['activation']
-        if activation == 'lrelu':
-            model.add(LeakyReLU(alpha=0.1))
+        if activation == 'leaky':
+            model.add(LeakyReLU(alpha=0.1, name=f'leaky_{block_index}'))
 
     for name, section in cfg:
         if name == 'net':
             input_shape = (section['height'], section['width'], section['channels'])
-            model.add(InputLayer(input_shape=input_shape))
+            model.add(InputLayer(input_shape=input_shape, name='input_0'))
         elif name == 'convolutional':
             add_conv_or_local(True, section)
         elif name == 'maxpool':
             pool_size = section['size']
             strides = section['stride']
-            model.add(MaxPooling2D(pool_size, strides))
+            model.add(MaxPooling2D(pool_size, strides, name=f'maxpool_{block_index}'))
         elif name == 'local':
             add_conv_or_local(False, section)
         elif name == 'dropout':
             rate = section['probability']
-            model.add(Dropout(rate))
+            model.add(Dropout(rate, name=f'dropout_{block_index}'))
         elif name == 'connected':
             units = section['output']
             activation = section['activation']
             
-            model.add(Flatten())
-            model.add(Dense(units))
+            model.add(Flatten(name=f'flatten_{block_index}'))
+            model.add(Dense(units, name=f'connected_{block_index}'))
             
-            if activation == 'lrelu':
-                model.add(LeakyReLU(alpha=0.1))
+            if activation == 'leaky':
+                model.add(LeakyReLU(alpha=0.1, name=f'leaky_{block_index}'))
         elif name == 'detection':
             classes = section['classes']
             grid_size = section['side']
             boxes_per_cell = section['num']
 
             output_shape = (grid_size, grid_size, 5 * boxes_per_cell + classes)
-            model.add(Reshape(output_shape))
+            model.add(Reshape(output_shape, name=f'reshape_{block_index}'))
+        
+        block_index += 1
     
     return model
 
@@ -214,28 +222,86 @@ def load_pretrained_darknet(cfg_file, weights_file):
     Loads a pretrained darknet model from a cfg file and a weights file
     """
 
+    # create the model
     cfg = parse_cfg(cfg_file)
+    model = create_model_from_cfg(cfg)
 
+    # load the model weights
     with open(weights_file, 'rb') as wf:
         # parse the header
-        header = np.fromfile(wf, dtype=np.int32, count=5)
-        seen = header[3]
-
-        # load the rest of the weights
-        all_weights = np.fromfile(wf, dtype=np.float32)
+        major, minor, revision = np.fromfile(wf, dtype=np.int32, count=3)
+        if major * 1 + minor >= 2 and major < 1000 and minor < 1000:
+            seen_dtype = np.int64
+        else:
+            seen_dtype = np.int32
+        seen = np.fromfile(wf, dtype=seen_dtype, count=1)
     
-    model = create_model_from_cfg(cfg)
-    # TODO: add weights
+        # load the weights
+        for block_index in range(1, len(cfg)):
+            name, section = cfg[block_index]
+            if name == 'convolutional':
+                conv2d_layer = model.get_layer(f'conv_{block_index}')
+
+                # layer hyperparameters
+                filters = conv2d_layer.filters
+                kernel_size = conv2d_layer.kernel_size
+                input_channels = conv2d_layer.input_shape[3]
+                use_bias = conv2d_layer.use_bias
+                try:
+                    batch_normalize = section['batch_normalize'] == 1
+                except:
+                    batch_normalize = False
+                
+                # load batch norm parameters
+                if batch_normalize:
+                    # darknet batch norm weights are stored as [beta, gamma, running_mean, running_variance]
+                    bn_beta = np.fromfile(wf, dtype=np.float32, count=filters)
+                    bn_gamma = np.fromfile(wf, dtype=np.float32, count=filters)
+                    bn_running_mean = np.fromfile(wf, dtype=np.float32, count=filters)
+                    bn_running_variance = np.fromfile(wf, dtype=np.float32, count=filters)
+
+                    # Keras BatchNormalization weights should be set as [gamma, beta, running_mean, running_variance]
+                    bn_layer = model.get_layer(f'batchnorm_{block_index}')
+                    bn_layer.set_weights([bn_gamma, bn_beta, bn_running_mean, bn_running_variance])
+
+                # load conv2d biases
+                if use_bias:
+                    conv2d_bias_shape = (filters,)
+                    conv2d_bias = np.formfile(wf, dtype=np.float32, count=bias_shape[0])
+
+                # load conv2d kernel weights
+                darnet_kernel_shape = (filters, input_channels, kernel_size[0], kernel_size[1])
+                darnet_kernel_weights = np.fromfile(wf, dtype=np.float32, count=np.prod(darnet_kernel_shape)).reshape(darnet_kernel_shape)
+
+                # Keras Conv2D kernel weights have the shape (kernel_size[0], kernel_size[1], input_channels, filters)
+                conv2d_kernel_weights = np.transpose(darnet_kernel_weights, [2, 3, 1, 0])
+
+                # set the layer weights
+                conv2d_weights = [conv2d_kernel_weights]
+                if use_bias:
+                    conv2d_weights.append(conv2d_bias)
+                conv2d_layer.set_weights(conv2d_weights)
+
+            elif name == 'local':
+                # TODO
+                pass
+            elif name == 'connected':
+                # TODO
+                pass
 
     return model
 
 if __name__ == "__main__":
-    cfg = parse_cfg('yolov1.cfg')
-    model = create_model_from_cfg(cfg)
-    model.summary()
+    # print(help(BatchNormalization.get_weights))
 
+    # cfg = parse_cfg('yolov1.cfg')
+    # model = create_model_from_cfg(cfg)
+    # print([a.shape for a in model.get_layer('batchnorm_1').get_weights()])
+    # print(model.get_layer('conv_1').output_shape)
+    # print([a.shape for a in model.get_layer('batchnorm_1').get_weights()])
+    # model.summary()
 
-    # load_pretrained_darknet('yolov1.cfg', None)
+    model = load_pretrained_darknet('yolov1.cfg', 'yolov1.weights')
     # print(parse_cfg('yolov1.cfg'))
     # yolo_model = create_model()
     # yolo_model.summary()
