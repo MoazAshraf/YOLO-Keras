@@ -3,74 +3,88 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, LeakyReLU, Flatten, Dense, Reshape
+from tensorflow.keras.layers import (
+    InputLayer,
+    Conv2D,
+    MaxPooling2D,
+    ZeroPadding2D,
+    LocallyConnected2D,
+    Dense,
+    LeakyReLU,
+    Flatten,
+    Reshape,
+    BatchNormalization,
+    Dropout
+)
 
 
-def create_model(input_shape=(448, 448, 3), lrelu_alpha=0.1, s=7, b=2, c=20, batchnorm=True):
+def create_model(input_shape=(448, 448, 3), s=7, b=2, c=20, batchnorm=True, lrelu_alpha=0.1):
     """
     Creates the YOLO model using tf.keras as desribed by the paper You Only Look Once.
 
-    The model expects preprocessed images of shape (448, 448, 3) and outputs predictions
-    of the shape (7, 7, 30). S = 7, B = 2, C = 20.
+    Change the input shape
     """
 
-
     output_shape=(s, s, b * 5 + c)
-
     model = tf.keras.models.Sequential()
 
-    model.add(Conv2D(64, kernel_size=7, strides=2, padding='same', input_shape=input_shape))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(MaxPooling2D(2, 2, padding='same'))
+    def add_conv_layer(filters, kernel_size, strides):
+        model.add(Conv2D(filters, kernel_size, strides, padding='same'))
+        model.add(LeakyReLU(alpha=lrelu_alpha))
+        if batchnorm:
+            model.add(BatchNormalization())
+    
+    def add_maxpool_layer(pool_size=2, strides=2):
+        model.add(MaxPooling2D(pool_size, strides, padding='same'))
+    
+    def add_local2d_layer(filters, kernel_size, strides):
+        model.add(ZeroPadding2D(padding=1))
+        model.add(LocallyConnected2D(filters, kernel_size, strides))
+        model.add(LeakyReLU(alpha=lrelu_alpha))
 
-    model.add(Conv2D(192, kernel_size=3, strides=1, padding='same'))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(MaxPooling2D(2, 2, padding='same'))
+    def add_dense_layer(units, lrelu_activation=False):
+        model.add(Dense(units))
+        if lrelu_activation:
+            model.add(LeakyReLU(alpha=lrelu_alpha))
 
-    model.add(Conv2D(128, kernel_size=1, strides=1, padding='same'))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(Conv2D(256, kernel_size=3, strides=1, padding='same'))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(Conv2D(256, kernel_size=1, strides=1, padding='same'))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(Conv2D(512, kernel_size=3, strides=1, padding='same'))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(MaxPooling2D(2, 2, padding='same'))
+    model.add(InputLayer(input_shape=input_shape))
+
+    add_conv_layer(64, 7, strides=2)
+    add_maxpool_layer(2, 2)
+
+    add_conv_layer(192, 3, strides=1)
+    add_maxpool_layer(2, 2)
+
+    add_conv_layer(128, 1, strides=1)
+    add_conv_layer(256, 3, strides=1)
+    add_conv_layer(256, 1, strides=1)
+    add_conv_layer(512, 3, strides=1)
+    add_maxpool_layer(2, 2)
 
     for _ in range(4):
-        model.add(Conv2D(256, kernel_size=1, strides=1, padding='same'))
-        model.add(LeakyReLU(alpha=lrelu_alpha))
-        model.add(Conv2D(512, kernel_size=3, strides=1, padding='same'))
-        model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(Conv2D(512, kernel_size=1, strides=1, padding='same'))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(Conv2D(1024, kernel_size=3, strides=1, padding='same'))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(MaxPooling2D(2, 2, padding='same'))
+        add_conv_layer(256, 1, strides=1)
+        add_conv_layer(512, 3, strides=1)
+    
+    add_conv_layer(512, 1, strides=1)
+    add_conv_layer(1024, 3, strides=1)
+    add_maxpool_layer(2, 2)
 
     for _ in range(2):
-        model.add(Conv2D(512, kernel_size=1, strides=1, padding='same'))
-        model.add(LeakyReLU(alpha=lrelu_alpha))
-        model.add(Conv2D(1024, kernel_size=3, strides=1, padding='same'))
-        model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(Conv2D(1024, kernel_size=3, strides=1, padding='same'))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-    model.add(Conv2D(1024, kernel_size=3, strides=2, padding='same'))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
+        add_conv_layer(512, 1, strides=1)
+        add_conv_layer(1024, 3, strides=1)
+
+    add_conv_layer(1024, 3, strides=1)
+    add_conv_layer(1024, 3, strides=2)
 
     for _ in range(2):
-        model.add(Conv2D(1024, kernel_size=3, strides=1, padding='same'))
-        model.add(LeakyReLU(alpha=lrelu_alpha))
+        add_conv_layer(1024, 3, strides=1)
+
+    add_local2d_layer(256, 3, strides=1)
+    model.add(Dropout(0.5))
 
     model.add(Flatten())
 
-    model.add(Dense(512))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-
-    model.add(Dense(4096))
-    model.add(LeakyReLU(alpha=lrelu_alpha))
-
-    model.add(Dense(np.prod(output_shape)))
+    add_dense_layer(np.prod(output_shape))
     model.add(Reshape(output_shape))
 
     return model
