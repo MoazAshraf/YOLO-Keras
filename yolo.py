@@ -314,11 +314,11 @@ def load_pretrained_darknet(cfg_file, weights_file):
                     local2d_bias = load_array(local2d_bias_shape)
 
                 # load local2d kernel weights
-                # assumption: darknet locally connected layer kernel weights as (c_in, f, k_size, k_size, h_out, w_out)
+                # assumption: darknet locally connected layer kernel weights have the shape (c_in, f, k_size, k_size, h_out, w_out)
                 darknet_kernel_shape = (c_in, f, k_size, k_size, h_out, w_out)
                 darknet_kernel_weights = load_array(darknet_kernel_shape)
 
-                # Keras LocallyConnected2D kernel weights have the shape (h*w, c_in*size*size, f)
+                # keras locally connected layer kernel weights have the shape (h*w, c_in*size*size, f)
                 local2d_kernel_shape = (h_out*w_out, c_in*k_size*k_size, f)
                 local2d_kernel_weights = np.transpose(darknet_kernel_weights, [4, 5, 0, 2, 3, 1])
                 local2d_kernel_weights = local2d_kernel_weights.reshape((local2d_kernel_shape))
@@ -330,8 +330,30 @@ def load_pretrained_darknet(cfg_file, weights_file):
                 local2d_layer.set_weights(local2d_weights)
 
             elif name == 'connected':
-                # TODO
-                pass
+                
+                dense_layer = model.get_layer(f'connected_{block_index}')
+
+                # layer hyperparameters
+                n_in = dense_layer.input_shape[1]
+                units = dense_layer.units
+                use_bias = dense_layer.use_bias
+
+                if use_bias:
+                    dense_bias_shape = (units,)
+                    dense_bias = load_array(dense_bias_shape)
+
+                # assumption: darkent dense layer weights have the shape (units, n_in)
+                dense_kernel_shape = (units, n_in)
+                dense_kernel_weights = load_array(dense_kernel_shape)
+
+                # keras dense layer weights have the shape (n_in, units)
+                dense_kernel_weights = dense_kernel_weights.T
+
+                # set the layer weights
+                dense_weights = [dense_kernel_weights]
+                if use_bias:
+                    dense_weights.append(dense_bias)
+                dense_layer.set_weights(dense_weights)                
 
     return model
 
