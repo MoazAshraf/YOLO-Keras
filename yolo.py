@@ -1,8 +1,10 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 import numpy as np
 import tensorflow as tf
+
 from tensorflow.keras.layers import (
     InputLayer,
     Conv2D,
@@ -228,8 +230,10 @@ def load_pretrained_darknet(cfg_file, weights_file):
 
     # load the model weights
     with open(weights_file, 'rb') as wf:
+
         # parse the header
         major, minor, revision = np.fromfile(wf, dtype=np.int32, count=3)
+
         if major * 1 + minor >= 2 and major < 1000 and minor < 1000:
             seen_dtype = np.int64
         else:
@@ -239,6 +243,7 @@ def load_pretrained_darknet(cfg_file, weights_file):
         # load the weights
         for block_index in range(1, len(cfg)):
             name, section = cfg[block_index]
+
             if name == 'convolutional':
                 conv2d_layer = model.get_layer(f'conv_{block_index}')
 
@@ -259,32 +264,65 @@ def load_pretrained_darknet(cfg_file, weights_file):
                     bn_gamma = np.fromfile(wf, dtype=np.float32, count=filters)
                     bn_running_mean = np.fromfile(wf, dtype=np.float32, count=filters)
                     bn_running_variance = np.fromfile(wf, dtype=np.float32, count=filters)
+                    bn_weights = [bn_gamma, bn_beta, bn_running_mean, bn_running_variance]
 
                     # Keras BatchNormalization weights should be set as [gamma, beta, running_mean, running_variance]
                     bn_layer = model.get_layer(f'batchnorm_{block_index}')
-                    bn_layer.set_weights([bn_gamma, bn_beta, bn_running_mean, bn_running_variance])
+                    bn_layer.set_weights(bn_weights)
 
                 # load conv2d biases
                 if use_bias:
                     conv2d_bias_shape = (filters,)
-                    conv2d_bias = np.formfile(wf, dtype=np.float32, count=bias_shape[0])
+                    conv2d_bias = np.fromfile(wf, dtype=np.float32, count=conv2d_bias_shape[0])
 
                 # load conv2d kernel weights
-                darnet_kernel_shape = (filters, input_channels, kernel_size[0], kernel_size[1])
-                darnet_kernel_weights = np.fromfile(wf, dtype=np.float32, count=np.prod(darnet_kernel_shape)).reshape(darnet_kernel_shape)
+                darknet_kernel_shape = (filters, input_channels, kernel_size[0], kernel_size[1])
+                darknet_kernel_weights = np.fromfile(wf, dtype=np.float32, count=np.prod(darknet_kernel_shape)).reshape(darknet_kernel_shape)
 
                 # Keras Conv2D kernel weights have the shape (kernel_size[0], kernel_size[1], input_channels, filters)
-                conv2d_kernel_weights = np.transpose(darnet_kernel_weights, [2, 3, 1, 0])
+                conv2d_kernel_weights = np.transpose(darknet_kernel_weights, [2, 3, 1, 0])
 
                 # set the layer weights
                 conv2d_weights = [conv2d_kernel_weights]
                 if use_bias:
                     conv2d_weights.append(conv2d_bias)
+                
                 conv2d_layer.set_weights(conv2d_weights)
 
             elif name == 'local':
-                # TODO
-                pass
+
+                local2d_layer = model.get_layer(f'local_{block_index}')
+
+                # layer hyperparameters
+                f = local2d_layer.filters
+                size = local2d_layer.kernel_size[0]
+                c_in = local2d_layer.input_shape[3]
+                _, h, w, _ = local2d_layer.output_shape
+                use_bias = local2d_layer.use_bias
+
+                # load conv2d biases
+                if use_bias:
+                    local2d_bias_shape = local2d_layer.output_shape[1:]
+                    local2d_bias = np.fromfile(wf, dtype=np.float32, count=np.prod(local2d_bias_shape))
+                    local2d_bias = local2d_bias.reshape(local2d_bias_shape)
+
+                # load local2d kernel weights
+                # assumption: darknet locally connected layer kernel weights as (c_in, f, size, size, h, w)
+                darknet_kernel_shape = (c_in, f, size, size, h, w)
+                darknet_kernel_weights = np.fromfile(wf, dtype=np.float32, count=np.prod(darknet_kernel_shape))
+                darknet_kernel_weights = darknet_kernel_weights.reshape(darknet_kernel_shape)
+
+                # Keras LocallyConnected2D kernel weights have the shape (h*w, c_in*size*size, f)
+                local2d_kernel_shape = (h*w, c_in*size*size, f)
+                local2d_kernel_weights = np.transpose(darknet_kernel_weights, [4, 5, 0, 2, 3, 1])
+                local2d_kernel_weights = local2d_kernel_weights.reshape((local2d_kernel_shape))
+
+                # set the layer weights
+                local2d_weights = [local2d_kernel_weights]
+                if use_bias:
+                    local2d_weights.append(local2d_bias)
+                local2d_layer.set_weights(local2d_weights)
+
             elif name == 'connected':
                 # TODO
                 pass
@@ -298,10 +336,17 @@ if __name__ == "__main__":
     # model = create_model_from_cfg(cfg)
     # print([a.shape for a in model.get_layer('batchnorm_1').get_weights()])
     # print(model.get_layer('conv_1').output_shape)
-    # print([a.shape for a in model.get_layer('batchnorm_1').get_weights()])
+
+    # print("Conv2D:")
+    # print([a.shape for a in model.get_layer('conv_28').get_weights()])
+    # print(model.get_layer('conv_28').output_shape)
+    # print("Local:")
+    # print([a.shape for a in model.get_layer('local_29').get_weights()])
+    # print(model.get_layer('local_29').output_shape)
     # model.summary()
 
     model = load_pretrained_darknet('yolov1.cfg', 'yolov1.weights')
+
     # print(parse_cfg('yolov1.cfg'))
     # yolo_model = create_model()
     # yolo_model.summary()
