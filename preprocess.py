@@ -47,12 +47,18 @@ def bndbox_to_coords(bndbox, img_width, img_height, s):
 
     return x, y, w, h, cell_x, cell_y
 
-def coords_to_bndbox(x, y, w, h, cell_x, cell_y, img_width, img_height, s):
+def coords_to_bndbox(x, y, w, h, cell_x, cell_y, img_width, img_height, s, wh_sqrt=False):
     """
     Given bounding box data in the format specified by bndbox_to_coords() as well as
     the image dimensions and the grid size (s), this function returns the bounding
     box in pixel coordinates as (xmin, xmax, ymin, ymax).
+
+    If wh_sqrt is true, the function expects w and h to be the square roots of the
+    predicted width and height respectively.
     """
+
+    if wh_sqrt:
+        w, h = w ** 2, h ** 2
 
     x = (x + cell_x) * img_width / s
     y = (y + cell_y) * img_height / s
@@ -101,16 +107,6 @@ def preprocess_label(label, s=7, b=3, c=20):
         
     return label_tensor
 
-def iou(box1, box2):
-    """
-    Returns the intersection over union of 2 boxes
-    """
-
-    xmin1, xmax1, ymin1, ymax1 = box1
-    xmin2, xmax2, ymin2, ymax2 = box2
-
-    # TODO
-
 def threshold_predictions(class_probs, box_confs, threshold=0.2):
     """
     class_probs is an (s, s, c) tensor of class probabilities.
@@ -119,6 +115,8 @@ def threshold_predictions(class_probs, box_confs, threshold=0.2):
     Returns an (s, s, b, c) tensor of class-specific confidence scores for each box
     after discarding (setting to zero) any score lower than the threshold.
     """
+
+    # TODO: implement using a vectorized method
 
     class_confs = np.zeros((s, s, b, c))
     for cell_y in range(s):
@@ -134,7 +132,60 @@ def threshold_predictions(class_probs, box_confs, threshold=0.2):
     
     return class_confs
 
-def prediction_to_label(pred, img_width, img_height, threshold=0.2, img_depth=3, s=7, b=3, c=20):
+def get_area(box):
+    """
+    Returns the area of a box
+    """
+
+    xmin, xmax, ymin, ymax = box
+    area = (xmax - xmin) * (ymax - ymin)
+    return area
+
+def get_intersection(box1, box2):
+    """
+    Returns the area of intersection between 2 boxes
+    """
+
+    xmin1, xmax1, ymin1, ymax1 = box1
+    xmin2, xmax2, ymin2, ymax2 = box2
+
+    inter_xmin = max(xmin1, xmin2)
+    inter_xmax = min(xmax1, xmax2)
+    inter_ymin = max(ymin1, ymin2)
+    inter_ymax = min(ymax1, ymax2)
+
+    if inter_xmin > inter_xmax:
+        inter_xmin, inter_xmax = inter_xmax, inter_xmin
+    if inter_ymin > inter_ymax:
+        inter_ymin, inter_ymax = inter_ymax, inter_ymin
+
+    inter_area = get_area([inter_xmin, inter_xmax, inter_ymin, inter_ymax])
+    return inter_area
+
+def get_iou(box1, box2):
+    """
+    Returns the intersection over union for 2 boxes
+    """
+
+    inter_area = get_intersection(box1, box2)
+    union_area = get_area(box1) + get_area(box2) - inter_area
+    iou = inter_area / union_area
+    return iou
+
+def non_maximal_suppression(class_confs, box_coords, min_iou=0.5):
+    """
+    Applies non maximal suppression and returns an (s, s, b, c) tensor representing
+    the modified class confidence scores.
+
+    NMS works by first choosing the box with maximum confidence and discarding any
+    boxes which have an iou larger than min_iou with that box. Then repeats the
+    process for the next box with maximum confidence.
+    """
+
+    # TODO
+    pass
+
+def get_label_from_prediction(pred, img_width, img_height, threshold=0.2, img_depth=3, s=7, b=3, c=20):
     """
     Converts a prediction tensor (output from the network) to a label in the format
     specified by create_labels.create_object_detection_label() except that the
