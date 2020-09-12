@@ -20,75 +20,6 @@ from tensorflow.keras.layers import (
 )
 
 
-def create_model(input_shape=(448, 448, 3), s=7, b=2, c=20, batchnorm=True, leaky_alpha=0.1):
-    """
-    Creates the YOLO model using tf.keras as desribed by the paper You Only Look Once.
-    """
-
-    output_shape=(s, s, b * 5 + c)
-    model = tf.keras.models.Sequential()
-
-    def add_conv_layer(filters, kernel_size, strides):
-        model.add(Conv2D(filters, kernel_size, strides, padding='same'))
-        model.add(LeakyReLU(alpha=leaky_alpha))
-        if batchnorm:
-            model.add(BatchNormalization())
-    
-    def add_maxpool_layer(pool_size=2, strides=2):
-        model.add(MaxPooling2D(pool_size, strides, padding='same'))
-    
-    def add_local2d_layer(filters, kernel_size, strides):
-        model.add(ZeroPadding2D(padding=1))
-        model.add(LocallyConnected2D(filters, kernel_size, strides))
-        model.add(LeakyReLU(alpha=leaky_alpha))
-
-    def add_dense_layer(units, leaky_activation=False):
-        model.add(Dense(units))
-        if leaky_activation:
-            model.add(LeakyReLU(alpha=leaky_alpha))
-
-    model.add(InputLayer(input_shape=input_shape))
-
-    add_conv_layer(64, 7, strides=2)
-    add_maxpool_layer(2, 2)
-
-    add_conv_layer(192, 3, strides=1)
-    add_maxpool_layer(2, 2)
-
-    add_conv_layer(128, 1, strides=1)
-    add_conv_layer(256, 3, strides=1)
-    add_conv_layer(256, 1, strides=1)
-    add_conv_layer(512, 3, strides=1)
-    add_maxpool_layer(2, 2)
-
-    for _ in range(4):
-        add_conv_layer(256, 1, strides=1)
-        add_conv_layer(512, 3, strides=1)
-    
-    add_conv_layer(512, 1, strides=1)
-    add_conv_layer(1024, 3, strides=1)
-    add_maxpool_layer(2, 2)
-
-    for _ in range(2):
-        add_conv_layer(512, 1, strides=1)
-        add_conv_layer(1024, 3, strides=1)
-
-    add_conv_layer(1024, 3, strides=1)
-    add_conv_layer(1024, 3, strides=2)
-
-    for _ in range(2):
-        add_conv_layer(1024, 3, strides=1)
-
-    add_local2d_layer(256, 3, strides=1)
-    model.add(Dropout(0.5))
-
-    model.add(Flatten())
-
-    add_dense_layer(np.prod(output_shape))
-    model.add(Reshape(output_shape))
-
-    return model
-
 def parse_cfg(filepath):
     """
     Parses a configuration file into a list of dictionaries where each
@@ -207,13 +138,13 @@ def create_model_from_cfg(cfg):
             
             if activation == 'leaky':
                 model.add(LeakyReLU(alpha=0.1, name=f'leaky_{block_index}'))
-        elif name == 'detection':
-            classes = section['classes']
-            grid_size = section['side']
-            boxes_per_cell = section['num']
+        # elif name == 'detection':
+        #     classes = section['classes']
+        #     grid_size = section['side']
+        #     boxes_per_cell = section['num']
 
-            output_shape = (grid_size, grid_size, 5 * boxes_per_cell + classes)
-            model.add(Reshape(output_shape, name=f'reshape_{block_index}'))
+        #     output_shape = (grid_size, grid_size, 5 * boxes_per_cell + classes)
+        #     model.add(Reshape(output_shape, name=f'reshape_{block_index}'))
         
         block_index += 1
     
@@ -358,23 +289,4 @@ def load_pretrained_darknet(cfg_file, weights_file):
     return model
 
 if __name__ == "__main__":
-    # print(help(BatchNormalization.get_weights))
-
-    # cfg = parse_cfg('yolov1.cfg')
-    # model = create_model_from_cfg(cfg)
-    # print([a.shape for a in model.get_layer('batchnorm_1').get_weights()])
-    # print(model.get_layer('conv_1').output_shape)
-
-    # print("Conv2D:")
-    # print([a.shape for a in model.get_layer('conv_28').get_weights()])
-    # print(model.get_layer('conv_28').output_shape)
-    # print("Local:")
-    # print([a.shape for a in model.get_layer('local_29').get_weights()])
-    # print(model.get_layer('local_29').output_shape)
-    # model.summary()
-
     model = load_pretrained_darknet('yolov1.cfg', 'yolov1.weights')
-
-    # print(parse_cfg('yolov1.cfg'))
-    # yolo_model = create_model()
-    # yolo_model.summary()

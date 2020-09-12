@@ -11,6 +11,15 @@ IMAGES_ZIP_PATH = "VOC2012/JPEG.zip"
 IMAGES_DIR = "VOC2012/JPEG"
 LABELS_DIR = "VOC2012/Labels"
 
+def open_image(image_file):
+    """
+    Opens an image from a file
+    """
+
+    img = Image.open(image_file)
+    img = np.array(img)
+    return img
+
 def open_image_from_zip(zip_file, filepath):
     """
     Opens an image from a zip file as a numpy array.
@@ -37,14 +46,14 @@ def open_example_from_zip(image_zip_file, image_filepath, labels_dir=LABELS_DIR)
     
     return image, label
 
-def draw_label_on_image(image, class_name, bndbox, color=(255, 0, 0)):
+def draw_object_label_on_image(image, class_name, bndbox, color=(255, 0, 0)):
     """
     Draws an object label (class name and bounding box) on an image. Returns a numpy array representing the RGB image.
     """
 
     white = (255, 255, 255)
 
-    xmin, xmax, ymin, ymax = bndbox
+    xmin, xmax, ymin, ymax = [int(x) for x in bndbox]
 
     tag_width, tag_height = len(class_name) * 10, 20
     text_offset=8
@@ -63,7 +72,7 @@ def label_image(image, label):
     """
 
     for obj in label["objects"]:
-        image = draw_label_on_image(image, obj['name'], obj['bndbox'])
+        image = draw_object_label_on_image(image, obj['name'], obj['bndbox'])
 
     return image
 

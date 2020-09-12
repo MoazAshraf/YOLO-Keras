@@ -38,8 +38,8 @@ def bndbox_to_coords(bndbox, img_width, img_height, s):
     y = (ymin + ymax) / 2 / img_height * s
 
     # size in grid units
-    w = (xmax - xmin) / img_width * s
-    h = (ymax - ymin) / img_height * s
+    w = (xmax - xmin) / img_width   # * s
+    h = (ymax - ymin) / img_height  # * s
 
     # position relative to cell
     cell_x, cell_y = int(x), int(y)
@@ -56,8 +56,8 @@ def coords_to_bndbox(x, y, w, h, cell_x, cell_y, img_width, img_height, s):
 
     x = (x + cell_x) * img_width / s
     y = (y + cell_y) * img_height / s
-    w = w * img_width / s
-    h = h * img_height / s
+    w = w * img_width   # / s
+    h = h * img_height  # / s
 
     xmin = round(x - w / 2)
     xmax = round(x + w / 2)
@@ -66,7 +66,7 @@ def coords_to_bndbox(x, y, w, h, cell_x, cell_y, img_width, img_height, s):
 
     return xmin, xmax, ymin, ymax
 
-def preprocess_label(label, s=7, b=2, c=20):
+def preprocess_label(label, s=7, b=3, c=20):
     """
     Creates a target label using a label dictionary
 
@@ -101,31 +101,76 @@ def preprocess_label(label, s=7, b=2, c=20):
         
     return label_tensor
 
-def tensor_to_label(label_tensor, img_width, img_height, img_depth=3):
+def iou(box1, box2):
     """
-    Converts a tensor in the format specified in preprocess_label() to a label
-    in the format specified by create_labels.create_object_detection_label()
-    except that the 'difficult' property is omitted.
+    Returns the intersection over union of 2 boxes
     """
 
-    # get grid size
-    s = label_tensor.shape[0]
+    xmin1, xmax1, ymin1, ymax1 = box1
+    xmin2, xmax2, ymin2, ymax2 = box2
+
+    # TODO
+
+def threshold_predictions(class_probs, box_confs, threshold=0.2):
+    """
+    class_probs is an (s, s, c) tensor of class probabilities.
+    box_confs is an (s, s, b) tensor of box confidence scores.
+
+    Returns an (s, s, b, c) tensor of class-specific confidence scores for each box
+    after discarding (setting to zero) any score lower than the threshold.
+    """
+
+    class_confs = np.zeros((s, s, b, c))
+    for cell_y in range(s):
+        for cell_x in range(s):
+            for box in range(b):
+                box_confidence = box_confs[cell_y, cell_x, box]
+                for class_index in range(c):
+                    class_probability = class_probs[cell_y, cell_x, class_index]
+                    class_confidence = class_probability * box_confidence
+
+                    if class_confidence >= threshold:
+                        class_confs[cell_y, cell_x, box, class_index] = class_confidence
+    
+    return class_confs
+
+def prediction_to_label(pred, img_width, img_height, threshold=0.2, img_depth=3, s=7, b=3, c=20):
+    """
+    Converts a prediction tensor (output from the network) to a label in the format
+    specified by create_labels.create_object_detection_label() except that the
+    'difficult' property is omitted.
+    """
+
+    # pred is a vector of length (s * s * (b + 5 + c))
+    class_probs_end = s*s*c
+    box_confs_end = class_probs_end + s*s*b
+
+    class_probs = pred[:class_probs_end].reshape((s, s, c))
+    box_confs = pred[class_probs_end:box_confs_end].reshape((s, s, b))
+    box_coords = pred[box_confs_end:].reshape((s, s, b, 4))
+
+    # get thresholded class-specific confidence scores
+    class_confs = threshold_predictions(class_probs, box_confs, threshold=threshold)
+
+    # 
     objects = []
 
     for cell_y in range(s):
         for cell_x in range(s):
-            if label_tensor[cell_y, cell_x, 0] == 1:
-                # get bounding box
-                x, y, w, h = label_tensor[cell_y,cell_x,1:5]
-                xmin, xmax, ymin, ymax = coords_to_bndbox(x, y, w, h, cell_x, cell_y, img_width, img_height, s)
+            for box in range(b):
+                if label_tensor[cell_y, cell_x, box*5+4] >= 0:
+                    # get bounding box
+                    x, y, w, h = label_tensor[cell_y,cell_x,box*5:box*5+4]
+                    w, h = w ** 2, h ** 2
+                    xmin, xmax, ymin, ymax = coords_to_bndbox(x, y, w, h, cell_x, cell_y, img_width, img_height, s)
 
-                # get class name
-                class_index = np.argmax(label_tensor[cell_y, cell_x, 10:])
-                class_name = INDEX_TO_CLASS_NAME[class_index]
+                    # get class name
+                    class_index = np.argmax(label_tensor[cell_y, cell_x, b*5:])
+                    class_name = INDEX_TO_CLASS_NAME[class_index]
 
-                # add the object the objects list
-                obj = {'name': class_name, 'bndbox': [xmin, xmax, ymin, ymax]}
-                objects.append(obj)
+                    # add the object the objects list
+                    obj = {'name': class_name, 'bndbox': [xmin, xmax, ymin, ymax]}
+                    objects.append(obj)
 
     label = {
         "image-size": {"depth": img_depth, "width": img_width, "height": img_height},
