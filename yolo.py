@@ -4,6 +4,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 import numpy as np
 import tensorflow as tf
+import tensorflow.keras.backend as K
 
 from tensorflow.keras.layers import (
     InputLayer,
@@ -18,6 +19,64 @@ from tensorflow.keras.layers import (
     BatchNormalization,
     Dropout
 )
+
+
+class YOLODetection(tf.keras.layers.Layer):
+    """
+    Custom detection layer for YOLO
+
+    - Reshapes the input tensor to the shape (s, s, b * 5 + c)
+    - Applies softmax to the class probabilites
+    - Applies sigmoid to the box confidence scores and the box coordinates
+    """
+
+    def __init__(self, s, b, c, softmax_class_probs=True, sigmoid_box_confs=True, sigmoid_box_coords=True, *args, **kwargs):
+        super(YOLODetection, self).__init__(*args, **kwargs)
+        self.grid_size = s
+        self.num_boxes = b
+        self.num_classes = c
+        self.softmax_class_probs = softmax_class_probs
+        self.sigmoid_box_confs = sigmoid_box_confs
+        self.sigmoid_box_coords = sigmoid_box_coords
+    
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'grid_size': self.grid_size,
+            'num_boxes': self.num_boxes,
+            'num_classes': self.num_classes,
+            'softmax_class_probs': self.softmax_class_probs,
+            'sigmoid_box_confs': self.sigmoid_box_confs,
+            'sigmoid_box_coords': self.sigmoid_box_coords
+        })
+        return config
+    
+    def call(self, x):
+        m = K.shape(x)[0]
+        s = self.grid_size
+        b = self.num_boxes
+        c = self.num_classes
+
+        class_probs_end = s * s * c
+        box_confs_end = class_probs_end + s * s * b
+
+        # class probabilities
+        class_probs = K.reshape(x[:, :class_probs_end], (m, s, s, c))
+        if self.softmax_class_probs:
+            class_probs = K.softmax(class_probs)
+
+        # box confidence scores
+        box_confs = K.reshape(x[:, class_probs_end:box_confs_end], (m, s, s, b))
+        if self.sigmoid_box_confs:
+            box_confs = K.sigmoid(box_confs)
+        
+        # box coordinates
+        box_coords = K.reshape(x[:, box_confs_end], (m, s, s, b * 4))
+        if self.sigmoid_box_coords:
+            box_coords = K.sigmoid(box_coords)
+        
+        outputs = K.concatenate([class_probs, box_confs, box_coords])
+        return outputs
 
 
 def parse_cfg(filepath):
@@ -139,16 +198,17 @@ def create_model_from_cfg(cfg):
             if activation == 'leaky':
                 model.add(LeakyReLU(alpha=0.1, name=f'leaky_{block_index}'))
         elif name == 'detection':
-            classes = section['classes']
-            grid_size = section['side']
-            boxes_per_cell = section['num']
+            s = section['side']
+            b = section['num']
+            c = section['classes']
 
-            output_shape = (grid_size, grid_size, 5 * boxes_per_cell + classes)
-            model.add(Reshape(output_shape, name=f'reshape_{block_index}'))
+            model.add(YOLODetection(s, b, c, name=f'detection_{block_index}'))
         
         block_index += 1
     
     return model
+
+
 
 def load_pretrained_darknet(cfg_file, weights_file):
     """
@@ -289,4 +349,7 @@ def load_pretrained_darknet(cfg_file, weights_file):
     return model
 
 if __name__ == "__main__":
-    model = load_pretrained_darknet('yolov1.cfg', 'yolov1.weights')
+    model = create_model_from_cfg(parse_cfg('yolov1.cfg'))
+    model.summary()
+    
+    # model = load_pretrained_darknet('yolov1.cfg', 'yolov1.weights')

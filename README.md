@@ -1,5 +1,5 @@
 # YOLO Implementation in Keras (TensorFlow 2)
-In this project, I attempt to implement YOLOv1 as described in the paper [You Only Look Once](https://arxiv.org/pdf/1506.02640.pdf) using TensorFlow 2's Keras API implementation. I use the [yolov1.cfg](https://github.com/pjreddie/darknet/blob/master/cfg/yolov1.cfg) file and the [pretrained model weights](http://pjreddie.com/media/files/yolov1/yolov1.weights) provided by the authors of the paper.
+In this project, I attempt to implement YOLOv1 as described in the paper [You Only Look Once](https://arxiv.org/pdf/1506.02640.pdf) using TensorFlow 2's Keras API implementation. I use the [yolov1.cfg](https://github.com/pjreddie/darknet/blob/master/cfg/yolov1.cfg) file to generate the model in Keras.
 
 ## YOLO Architecture
 <div style="text-align: center;">
@@ -18,6 +18,7 @@ pip install -r requirements.txt
 - [pjreddie.com/darknet/yolov1/](https://pjreddie.com/darknet/yolov1/)
 - [github.com/pjreddie/darknet](https://github.com/pjreddie/darknet)
 - [github.com/qqwweee/keras-yolo3](https://github.com/qqwweee/keras-yolo3)
+- [Implementing YOLOV1 from scratch using Keras Tensorflow 2.0][https://www.maskaravivek.com/post/yolov1/]
 - [How to implement a YOLO (v3) object detector from scratch in PyTorch: Part 2
 ](https://blog.paperspace.com/how-to-implement-a-yolo-v3-object-detector-from-scratch-in-pytorch-part-2/)
 - [How to implement a YOLO (v3) object detector from scratch in PyTorch: Part 3

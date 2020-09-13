@@ -96,9 +96,9 @@ def get_truth_from_label(label, s=7, b=3, c=20):
 
         # add the data to the tensor
         if truth_tensor[cell_y, cell_x, c] == 0:
-            truth_tensor[cell_y, cell_x, c] = 1 # box confidence score
-            truth_tensor[cell_y, cell_x, c+1:c+5] = x, y, w, h  # box coordinates
             truth_tensor[cell_y, cell_x, class_index] = 1   # class probabilities
+            truth_tensor[cell_y, cell_x, c] = 1 # box confidence score
+            truth_tensor[cell_y, cell_x, c+b:c+b+4] = x, y, w, h  # box coordinates
         
     return truth_tensor
 
