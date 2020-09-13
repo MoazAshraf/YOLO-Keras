@@ -1,10 +1,15 @@
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 import zipfile
 import json
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+import tensorflow as tf
+from data_processing import preprocess_image, get_truth_from_label
 
 
 IMAGES_ZIP_PATH = "VOC2012/JPEG.zip"
@@ -91,18 +96,51 @@ def label_image(image, label):
 
     return image
 
+
+class DataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, image_paths, label_paths, batch_size, from_zip=False, zip_file=None):
+        self.image_paths = image_paths
+        self.label_paths = label_paths
+        self.batch_size = batch_size
+        self.from_zip = from_zip
+        self.zip_file = zip_file
+    
+    def __len__(self):
+        return math.ceil(len(self.image_paths) / self.batch_size)
+    
+    def __getitem__(self, idx):
+        batch_image_paths = self.image_paths[idx * self.batch_size:(idx + 1) * self.batch_size]
+        batch_label_paths = self.label_paths[idx * self.batch_size:(idx + 1) * self.batch_size]
+
+        batch_x = []
+        batch_y = []
+
+        for i in range(0, len(batch_image_paths)):
+            image_path = batch_image_paths[i]
+            label_path = batch_label_paths[i]
+
+            # load the example
+            if self.from_zip:
+                image = load_image_from_zip(self.zip_file, image_path)
+            else:
+                image = load_image(image_path)
+            label = load_label(label_path)
+
+            # preprocess the example
+            x = preprocess_image(image)
+            y = get_truth_from_label(label)
+
+            batch_x.append(x)
+            batch_y.append(y)
+
+        return np.array(batch_x), np.array(batch_y)
+
+
 if __name__ == "__main__":
     with zipfile.ZipFile(IMAGES_ZIP_PATH, 'r') as images_zip:
-        image_path_in_zip = "JPEG/2011_004301.jpg"
-        image = load_image_from_zip(images_zip, image_path_in_zip)
-        image_name = get_filename(image_path_in_zip)
-        label_path = get_labelpath_from_imagename(image_name)
-        label = load_label(label_path)
+        image_paths = images_zip.namelist()[1:]
+        label_paths = [get_labelpath_from_imagename(get_filename(x)) for x in image_paths]
 
-        print(type(image))
-        print(image.shape)
-        print(label)
+        data_gen = DataGenerator(image_paths, label_paths, 4, from_zip=True, zip_file=images_zip)
 
-        image = label_image(image, label)
-        plt.imshow(image)
-        plt.show()
+        print(data_gen[0][0].shape, data_gen[0][1].shape)
