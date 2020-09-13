@@ -205,12 +205,16 @@ def get_iou(box1, box2):
     iou = inter_area / union_area
     return iou
 
-def keras_yolo_coords_to_bndboxes(boxes, image_shape=IMAGE_SHAPE[:2]):
+def keras_yolo_to_image_coords(boxes):
     """
     boxes should have the shape (m, s, s, b, 4).
 
-    Converts YOLO coordinates to bounding box limits (xy_min, xy_max) in pixel
-    coordinates.
+    Converts YOLO coordinates to coordinates (x, y, w, h) relative to the image,
+    such that each of x, y, w and h would be in the range [0:1].
+
+    Returns:
+    - xy, tensor of shape (m, s, s, b, 2) representing the x, y coordinates of the boxes
+    - wh, tensor of shape (m, s, s, b, 2) representing the widths and heights of the boxes
 
     Uses functions from tf.keras.backend (K).
     """
@@ -231,14 +235,22 @@ def keras_yolo_coords_to_bndboxes(boxes, image_shape=IMAGE_SHAPE[:2]):
     cell_xy = K.reshape(cell_xy, [1, s, s, 1, 2])
     cell_xy = K.cast(cell_xy, K.dtype(boxes))
     
-    image_wh = K.cast(K.transpose(image_shape[:2]), K.dtype(boxes))
     grid_dims = K.cast(K.constant([s, s]), K.dtype(boxes))
 
-    xy = boxes[..., :2] + cell_xy * image_wh / grid_dims
-    wh = boxes[..., 2:4] * image_wh
+    xy = boxes[..., :2] + cell_xy / grid_dims
+    wh = boxes[..., 2:4]
 
-    min_xy = xy - wh / 2
-    max_xy = xy + wh / 2
+    return xy, wh
+
+def keras_image_coords_to_minmax(xy, wh, image_shape=IMAGE_SHAPE[:2]):
+    """
+    Converts image coordinates to min-max values
+    """
+
+    image_wh = K.cast(K.transpose(image_shape[:2]), K.dtype(xy))
+
+    min_xy = (xy - wh / 2) * image_wh
+    max_xy = (xy + wh / 2) * image_wh
 
     return min_xy, max_xy
 
@@ -253,7 +265,6 @@ def keras_iou(min_xy1, max_xy1, min_xy2, max_xy2):
     
     Uses functions from tf.keras.backend (K).
     """
-
 
     # calculate the intersection areas
     inter_min_xy = K.maximum(min_xy1, min_xy2)

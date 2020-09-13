@@ -20,7 +20,7 @@ from tensorflow.keras.layers import (
     Dropout
 )
 
-from data_processing import keras_iou, keras_yolo_coords_to_bndboxes, IMAGE_SHAPE
+from data_processing import keras_iou, keras_yolo_to_image_coords, keras_image_coords_to_minmax, IMAGE_SHAPE
 
 
 class YOLODetection(tf.keras.layers.Layer):
@@ -237,9 +237,13 @@ def yolo_loss(y_true, y_pred, s=7, b=3, c=20, image_shape=IMAGE_SHAPE[:2], sqrt=
     pred_box_coords = y_pred[..., c+b:]
     pred_box_coords = K.reshape(pred_box_coords, (-1, s, s, b, 4))  # (m, s, s, b, 4)
 
-    # convert box coordinates to bounding box limits
-    truth_box_min_xy, truth_box_max_xy = keras_yolo_coords_to_bndboxes(truth_box_coords, image_shape)
-    pred_box_min_xy, pred_box_max_xy = keras_yolo_coords_to_bndboxes(pred_box_coords, image_shape)
+    # convert YOLO box coordinates to coordinates relative to the image
+    truth_box_xy, truth_box_wh = keras_yolo_to_image_coords(truth_box_coords)
+    pred_box_xy, pred_box_wh = keras_yolo_to_image_coords(pred_box_coords)
+
+    # convert image coordinates to min max coordinates relative to the image's size in pixels
+    truth_box_min_xy, truth_box_max_xy = keras_image_coords_to_minmax(truth_box_xy, truth_box_wh, image_shape)
+    pred_box_min_xy, pred_box_max_xy = keras_image_coords_to_minmax(pred_box_xy, pred_box_wh, image_shape)
 
     # find the box with the best IoU with the truth box
     iou_scores = keras_iou(pred_box_min_xy, pred_box_max_xy, truth_box_min_xy, truth_box_max_xy)
@@ -247,10 +251,26 @@ def yolo_loss(y_true, y_pred, s=7, b=3, c=20, image_shape=IMAGE_SHAPE[:2], sqrt=
     best_box_mask = K.cast(iou_scores >= best_ious, K.dtype(iou_scores))
 
     # if the jth bounding box predictor in cell i is responsible for that prediction it will be 1; otherwise will be 0
-    is_box_responsible = truth_is_obj * best_box_mask   # (m, s, s, b)
+    box_has_obj = truth_is_obj * best_box_mask   # (m, s, s, b)
 
-    # coord_loss = is_box_responsible * (K.square())
+    # calculate loss due to coordinates
+    xy_sqerrors = K.square(truth_box_xy - pred_box_xy)
+    wh_sqerrors = K.square(K.sqrt(truth_box_wh) - K.sqrt(pred_box_wh))
+    coord_loss = coord_scale * K.sum(K.expand_dims(box_has_obj) * (xy_sqerrors + wh_sqerrors))
 
+    # calculate loss due to object confidence scores for boxes responsible for true objects
+    obj_loss = object_scale * K.sum(box_has_obj * K.square(1 - pred_box_confs))
+
+    # calculate loss due to object confidence scores for boxes responsible for no true objects
+    noobj_loss = noobject_scale * K.sum((1 - box_has_obj) * K.square(0 - pred_box_confs))
+
+    # calculate loss due to class probabilities
+    class_loss = class_scale * K.sum(truth_is_obj * K.square(truth_classes - pred_class_probs))
+
+    # the total loss
+    loss = coord_loss + obj_loss + noobj_loss + class_loss
+
+    return loss
 
 def load_pretrained_darknet(cfg_file, weights_file):
     """
@@ -405,9 +425,9 @@ if __name__ == "__main__":
 
         x, y = data_gen[0]
 
-    print(x.shape)
+    # print(x.shape)
     y_pred = model.predict(x)
-    print(y_pred)
+    # print(y_pred)
     print(yolo_loss(y, y_pred))
     
     # model = load_pretrained_darknet('yolov1.cfg', 'yolov1.weights')
