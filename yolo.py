@@ -20,6 +20,8 @@ from tensorflow.keras.layers import (
     Dropout
 )
 
+from data_processing import keras_iou, keras_yolo_coords_to_bndboxes, IMAGE_SHAPE
+
 
 class YOLODetection(tf.keras.layers.Layer):
     """
@@ -71,7 +73,7 @@ class YOLODetection(tf.keras.layers.Layer):
             box_confs = K.sigmoid(box_confs)
         
         # box coordinates
-        box_coords = K.reshape(x[:, box_confs_end], (m, s, s, b * 4))
+        box_coords = K.reshape(x[:, box_confs_end:], (m, s, s, b * 4))
         if self.sigmoid_box_coords:
             box_coords = K.sigmoid(box_coords)
         
@@ -208,6 +210,46 @@ def create_model_from_cfg(cfg):
     
     return model
 
+def yolo_loss(y_true, y_pred, s=7, b=3, c=20, image_shape=IMAGE_SHAPE[:2], sqrt=True,
+              object_scale=1, noobject_scale=.5, class_scale=1, coord_scale=5):
+    """
+    Custom YOLO loss function
+    """
+
+    # truth classes
+    truth_classes = y_true[..., :c]   # (m, s, s, c)
+    
+    # the truth label has one box per cell, if its confidence score is 1 then there is an object
+    truth_is_obj = y_true[..., c]
+    truth_is_obj = K.expand_dims(truth_is_obj)  # (m, s, s, 1)
+
+    # truth box coordinates
+    truth_box_coords = y_true[..., c+b:c+b+4] # the box coordinates of the truth label (zeros if there is no object)
+    truth_box_coords = K.reshape(truth_box_coords, (-1, s, s, 1, 4))   # (m, s, s, 1, 4)
+
+    # prediction class probabilites
+    pred_class_probs = y_pred[..., :c]    # (m, s, s, c)
+
+    # prediction box confidence scores
+    pred_box_confs = y_pred[..., c:c+b]   # (m, s, s, b)
+
+    # prediction box coordinates
+    pred_box_coords = y_pred[..., c+b:]
+    pred_box_coords = K.reshape(pred_box_coords, (-1, s, s, b, 4))  # (m, s, s, b, 4)
+
+    # convert box coordinates to bounding box limits
+    truth_box_min_xy, truth_box_max_xy = keras_yolo_coords_to_bndboxes(truth_box_coords, image_shape)
+    pred_box_min_xy, pred_box_max_xy = keras_yolo_coords_to_bndboxes(pred_box_coords, image_shape)
+
+    # find the box with the best IoU with the truth box
+    iou_scores = keras_iou(pred_box_min_xy, pred_box_max_xy, truth_box_min_xy, truth_box_max_xy)
+    best_ious = K.max(iou_scores, axis=-1, keepdims=True)
+    best_box_mask = K.cast(iou_scores >= best_ious, K.dtype(iou_scores))
+
+    # if the jth bounding box predictor in cell i is responsible for that prediction it will be 1; otherwise will be 0
+    is_box_responsible = truth_is_obj * best_box_mask   # (m, s, s, b)
+
+    # coord_loss = is_box_responsible * (K.square())
 
 
 def load_pretrained_darknet(cfg_file, weights_file):
@@ -349,7 +391,23 @@ def load_pretrained_darknet(cfg_file, weights_file):
     return model
 
 if __name__ == "__main__":
+    import zipfile
+    from io_utils import *
+
     model = create_model_from_cfg(parse_cfg('yolov1.cfg'))
     model.summary()
+
+    with zipfile.ZipFile(IMAGES_ZIP_PATH, 'r') as images_zip:
+        image_paths = images_zip.namelist()[1:]
+        label_paths = [get_labelpath_from_imagename(get_filename(x)) for x in image_paths]
+
+        data_gen = DataGenerator(image_paths, label_paths, 4, from_zip=True, zip_file=images_zip)
+
+        x, y = data_gen[0]
+
+    print(x.shape)
+    y_pred = model.predict(x)
+    print(y_pred)
+    print(yolo_loss(y, y_pred))
     
     # model = load_pretrained_darknet('yolov1.cfg', 'yolov1.weights')

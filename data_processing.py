@@ -1,7 +1,13 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 import numpy as np
 import cv2
+import tensorflow.keras.backend as K
 
 
+IMAGE_SHAPE = (448, 448, 3)
 CLASS_NAME_TO_INDEX = {
     'aeroplane': 0, 'bicycle': 1, 'bird': 2, 'boat': 3, 'bottle': 4, 'bus': 5,
     'car': 6, 'cat': 7, 'chair': 8, 'cow': 9, 'diningtable': 10, 'dog': 11,
@@ -10,7 +16,7 @@ CLASS_NAME_TO_INDEX = {
 }
 INDEX_TO_CLASS_NAME = list(CLASS_NAME_TO_INDEX.keys())
 
-def preprocess_image(image, newsize=(448, 448)):
+def preprocess_image(image, newsize=IMAGE_SHAPE[:2]):
     """
     Resizes and normalizes the image
     """
@@ -87,7 +93,7 @@ def get_truth_from_label(label, s=7, b=3, c=20):
     img_width, img_height = label['image-size']['width'], label['image-size']['height']
 
     truth_shape = (s, s, b * 5 + c)
-    truth_tensor = np.zeros(truth_shape)
+    truth_tensor = np.zeros(truth_shape, dtype=np.float32)
 
     for object in label['objects']:
         # get object data
@@ -191,13 +197,81 @@ def get_intersection(box1, box2):
 
 def get_iou(box1, box2):
     """
-    Returns the intersection over union for 2 boxes
+    Returns the intersection over union for 2 boxes.
     """
 
     inter_area = get_intersection(box1, box2)
     union_area = get_area(box1) + get_area(box2) - inter_area
     iou = inter_area / union_area
     return iou
+
+def keras_yolo_coords_to_bndboxes(boxes, image_shape=IMAGE_SHAPE[:2]):
+    """
+    boxes should have the shape (m, s, s, b, 4).
+
+    Converts YOLO coordinates to bounding box limits (xy_min, xy_max) in pixel
+    coordinates.
+
+    Uses functions from tf.keras.backend (K).
+    """
+
+    boxes_shape = K.shape(boxes)
+    
+    s = boxes.shape[1]
+    b = boxes.shape[3]
+
+    cell_y = K.arange(s)
+    cell_y = K.tile(cell_y, [s])
+
+    cell_x = K.arange(s)
+    cell_x = K.tile(K.expand_dims(cell_x, 0), [s, 1])
+    cell_x = K.flatten(K.transpose(cell_x))
+
+    cell_xy = K.transpose(K.stack([cell_y, cell_x]))
+    cell_xy = K.reshape(cell_xy, [1, s, s, 1, 2])
+    cell_xy = K.cast(cell_xy, K.dtype(boxes))
+    
+    image_wh = K.cast(K.transpose(image_shape[:2]), K.dtype(boxes))
+    grid_dims = K.cast(K.constant([s, s]), K.dtype(boxes))
+
+    xy = boxes[..., :2] + cell_xy * image_wh / grid_dims
+    wh = boxes[..., 2:4] * image_wh
+
+    min_xy = xy - wh / 2
+    max_xy = xy + wh / 2
+
+    return min_xy, max_xy
+
+def keras_iou(min_xy1, max_xy1, min_xy2, max_xy2):
+    """
+    Applies IoU to each pair of boxes in the given tensors.
+
+    min_xy1 has the shape (m, s, s, b, 2) and contains xmin and ymin values for the first box.
+    max_xy1 has the shape (m, s, s, b, 2) and contains xmax and ymax values for the first box.
+    min_xy2 has the shape (m, s, s, b, 2) and contains xmin and ymin values for the second box.
+    max_xy2 has the shape (m, s, s, b, 2) and contains xmax and ymax values for the second box.
+    
+    Uses functions from tf.keras.backend (K).
+    """
+
+
+    # calculate the intersection areas
+    inter_min_xy = K.maximum(min_xy1, min_xy2)
+    inter_max_xy = K.minimum(max_xy1, max_xy2)
+    inter_wh = K.maximum(inter_max_xy - inter_min_xy, 0)
+    inter_areas = inter_wh[..., 0] * inter_wh[..., 1]
+
+    # calculate the union areas
+    wh1 = max_xy1 - min_xy1
+    wh2 = max_xy2 - min_xy2
+    areas1 = wh1[..., 0] * wh1[..., 1]
+    areas2 = wh2[..., 0] * wh2[..., 1]
+    union_areas = areas1 + areas2 - inter_areas
+
+    iou_scores = inter_areas / union_areas
+
+    return iou_scores
+
 
 def non_maximal_suppression(box_confs, box_coords, min_iou=0.5):
     """
@@ -260,20 +334,21 @@ def get_label_from_prediction(pred, img_width, img_height, threshold=0.2, img_de
     return label
 
 if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    import zipfile
-    from data_utils import open_example_from_zip, label_image, IMAGES_ZIP_PATH
+    pass
+    # import matplotlib.pyplot as plt
+    # import zipfile
+    # from io_utils import open_example_from_zip, label_image, IMAGES_ZIP_PATH
 
-    with zipfile.ZipFile(IMAGES_ZIP_PATH, 'r') as images_zip:
-        img, label = open_example_from_zip(images_zip, "JPEG/2011_004301.jpg")
-        print(type(img))
-        print(img.shape)
-        print(label)
+    # with zipfile.ZipFile(IMAGES_ZIP_PATH, 'r') as images_zip:
+    #     img, label = open_example_from_zip(images_zip, "JPEG/2011_004301.jpg")
+    #     print(type(img))
+    #     print(img.shape)
+    #     print(label)
 
-        img = preprocess_image(img)
-        label_tensor = preprocess_label(label)
-        resized_label = tensor_to_label(label_tensor, img.shape[1], img.shape[0], img.shape[2])
+    #     img = preprocess_image(img)
+    #     label_tensor = preprocess_label(label)
+    #     resized_label = tensor_to_label(label_tensor, img.shape[1], img.shape[0], img.shape[2])
 
-        img = label_image(img, resized_label)
-        plt.imshow(img)
-        plt.show()
+    #     img = label_image(img, resized_label)
+    #     plt.imshow(img)
+    #     plt.show()
