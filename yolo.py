@@ -138,13 +138,13 @@ def create_model_from_cfg(cfg):
             
             if activation == 'leaky':
                 model.add(LeakyReLU(alpha=0.1, name=f'leaky_{block_index}'))
-        # elif name == 'detection':
-        #     classes = section['classes']
-        #     grid_size = section['side']
-        #     boxes_per_cell = section['num']
+        elif name == 'detection':
+            classes = section['classes']
+            grid_size = section['side']
+            boxes_per_cell = section['num']
 
-        #     output_shape = (grid_size, grid_size, 5 * boxes_per_cell + classes)
-        #     model.add(Reshape(output_shape, name=f'reshape_{block_index}'))
+            output_shape = (grid_size, grid_size, 5 * boxes_per_cell + classes)
+            model.add(Reshape(output_shape, name=f'reshape_{block_index}'))
         
         block_index += 1
     

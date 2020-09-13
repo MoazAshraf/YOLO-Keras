@@ -21,8 +21,8 @@ def preprocess_image(image, newsize=(448, 448)):
 
 def bndbox_to_coords(bndbox, img_width, img_height, s):
     """
-    Given a bounding box in pixel coordinates, the image dimensions and the grid size (s),
-    this function returns:
+    Given a bounding box in pixel coordinates (xmin, xmax, ymin, ymax), the image
+    dimensions and the grid size (s), this function returns:
 
     - x, y: the center coordinates of the bounding box relative to the cell associated
             with the bounding box where (0, 0) is the top left of the cell and (1, 1)
@@ -47,18 +47,12 @@ def bndbox_to_coords(bndbox, img_width, img_height, s):
 
     return x, y, w, h, cell_x, cell_y
 
-def coords_to_bndbox(x, y, w, h, cell_x, cell_y, img_width, img_height, s, wh_sqrt=False):
+def coords_to_bndbox(x, y, w, h, cell_x, cell_y, img_width, img_height, s):
     """
     Given bounding box data in the format specified by bndbox_to_coords() as well as
     the image dimensions and the grid size (s), this function returns the bounding
     box in pixel coordinates as (xmin, xmax, ymin, ymax).
-
-    If wh_sqrt is true, the function expects w and h to be the square roots of the
-    predicted width and height respectively.
     """
-
-    if wh_sqrt:
-        w, h = w ** 2, h ** 2
 
     x = (x + cell_x) * img_width / s
     y = (y + cell_y) * img_height / s
@@ -72,27 +66,28 @@ def coords_to_bndbox(x, y, w, h, cell_x, cell_y, img_width, img_height, s, wh_sq
 
     return xmin, xmax, ymin, ymax
 
-def preprocess_label(label, s=7, b=3, c=20):
+def get_truth_from_label(label, s=7, b=3, c=20):
     """
-    Creates a target label using a label dictionary
+    Creates a truth label tensor using a label dictionary
 
+    - label is the dictionary in the format specified in create_labels.create_object_detection_label()
     - s is the size of the grid (there will be s*s cells)
     - b is the number of bounding boxes for each cell
     - c is the number of possible classes
 
-    Note: for now this function only uses one bounding box per cell
+    Note: this function uses the first bounding box only. The other bounding boxes are set to zeros.
 
-    Returns an s * s * (b * 5 + c) such that each cell has a (b * 5 * c) vector with
+    Returns an (s, s, (b * 5 + c)) tensor such that each cell has a (b * 5 * c) vector with
     the following:
-    - the confidence score of the object
-    - the bounding box coordinates
-    - one-hot encoding of the label classs
+    - one-hot encoding of the true class (c)
+    - the confidence score for the box (1 per box)
+    - the bounding box coordinates for the box (4 per box) 
     """
 
     img_width, img_height = label['image-size']['width'], label['image-size']['height']
 
-    label_shape = (s, s, b * 5 + c)
-    label_tensor = np.zeros(label_shape)
+    truth_shape = (s, s, b * 5 + c)
+    truth_tensor = np.zeros(truth_shape)
 
     for object in label['objects']:
         # get object data
@@ -100,12 +95,27 @@ def preprocess_label(label, s=7, b=3, c=20):
         x, y, w, h, cell_x, cell_y = bndbox_to_coords(object['bndbox'], img_width, img_height, s)
 
         # add the data to the tensor
-        if label_tensor[cell_y, cell_x, 0] == 0:
-            label_tensor[cell_y, cell_x, 0] = 1
-            label_tensor[cell_y, cell_x, 1:5] = x, y, w, h
-            label_tensor[cell_y, cell_x, 10+class_index] = 1
+        if truth_tensor[cell_y, cell_x, c] == 0:
+            truth_tensor[cell_y, cell_x, c] = 1 # box confidence score
+            truth_tensor[cell_y, cell_x, c+1:c+5] = x, y, w, h  # box coordinates
+            truth_tensor[cell_y, cell_x, class_index] = 1   # class probabilities
         
-    return label_tensor
+    return truth_tensor
+
+def get_label_from_tensor(tensor, s=7, b=3, c=20):
+    """
+    Converts a tensor (either a truth tensor or a predicted tensor) to a label dictionary.
+
+    - tensor is an (s, s, (b * 5 + c)) shaped tensor with the format specified in get_truth_from_label()
+    - s is the size of the grid (there will be s*s cells)
+    - b is the number of bounding boxes for each cell
+    - c is the number of possible classes
+
+    - Returns a label dictionary in the format specified in create_labels.create_object_detection_label()
+    """
+
+    # TODO
+    pass
 
 def filter_predictions(class_probs, box_confs, box_coords, threshold=0.0001):
     """
