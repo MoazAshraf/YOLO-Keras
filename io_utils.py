@@ -11,40 +11,55 @@ IMAGES_ZIP_PATH = "VOC2012/JPEG.zip"
 IMAGES_DIR = "VOC2012/JPEG"
 LABELS_DIR = "VOC2012/Labels"
 
-def open_image(image_file):
+def get_filename(filepath):
     """
-    Opens an image from a file
+    Returns the name of the file without the extension
     """
 
-    img = Image.open(image_file)
+    filename = os.path.split(filepath)[1].split(".")[0]
+    return filename
+
+def load_image(image_path):
+    """
+    Loads an image from a file
+    """
+
+    img = Image.open(image_path)
     img = np.array(img)
     return img
 
-def open_image_from_zip(zip_file, filepath):
+def load_image_from_zip(zip_file, image_path_in_zip):
     """
-    Opens an image from a zip file as a numpy array.
+    Loads an image from a zip file as a numpy array.
+
+    zip_file should be a zipfile.ZipFile instance
+    image_path_in_zip should be the image's file path relative to the zip file
     """
 
-    info = zip_file.getinfo(filepath)
+    info = zip_file.getinfo(image_path_in_zip)
     data = zip_file.open(info)
     img = Image.open(data)
     img = np.array(img)
     return img
 
-def open_example_from_zip(image_zip_file, image_filepath, labels_dir=LABELS_DIR):
+def load_label(label_path):
     """
-    Loads an example image stored in a zip file and its label from a JSON file.
+    Loads a label from a JSON file
     """
 
-    image = open_image_from_zip(image_zip_file, image_filepath)
-
-    image_name = os.path.split(image_filepath)[1].split(".")[0]
-    label_filepath = os.path.join(labels_dir, image_name + ".json")
-
-    with open(label_filepath, 'r') as label_file:
+    with open(label_path, 'r') as label_file:
         label = json.load(label_file)
     
-    return image, label
+    return label
+
+def get_labelpath_from_imagename(image_name, labels_dir=LABELS_DIR):
+    """
+    Returns the file path of the .JSON label corresponding to the specified
+    image's file name.
+    """
+
+    label_path = os.path.join(labels_dir, image_name + ".json")
+    return label_path
 
 def draw_object_label_on_image(image, class_name, bndbox, color=(255, 0, 0)):
     """
@@ -78,11 +93,16 @@ def label_image(image, label):
 
 if __name__ == "__main__":
     with zipfile.ZipFile(IMAGES_ZIP_PATH, 'r') as images_zip:
-        img, label = open_example_from_zip(images_zip, "JPEG/2011_004301.jpg")
-        print(type(img))
-        print(img.shape)
+        image_path_in_zip = "JPEG/2011_004301.jpg"
+        image = load_image_from_zip(images_zip, image_path_in_zip)
+        image_name = get_filename(image_path_in_zip)
+        label_path = get_labelpath_from_imagename(image_name)
+        label = load_label(label_path)
+
+        print(type(image))
+        print(image.shape)
         print(label)
 
-        img = label_image(img, label)
-        plt.imshow(img)
+        image = label_image(image, label)
+        plt.imshow(image)
         plt.show()

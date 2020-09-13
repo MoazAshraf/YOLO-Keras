@@ -284,7 +284,7 @@ def load_pretrained_darknet(cfg_file, weights_file):
                 dense_weights = [dense_kernel_weights]
                 if use_bias:
                     dense_weights.append(dense_bias)
-                dense_layer.set_weights(dense_weights)                
+                dense_layer.set_weights(dense_weights)
 
     return model
 

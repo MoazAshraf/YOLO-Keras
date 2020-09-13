@@ -107,30 +107,47 @@ def preprocess_label(label, s=7, b=3, c=20):
         
     return label_tensor
 
-def threshold_predictions(class_probs, box_confs, threshold=0.2):
+def filter_predictions(class_probs, box_confs, box_coords, threshold=0.0001):
     """
     class_probs is an (s, s, c) tensor of class probabilities.
     box_confs is an (s, s, b) tensor of box confidence scores.
+    box_coords is an (s, s, b, 4) tensor of coordinates.
 
     Returns an (s, s, b, c) tensor of class-specific confidence scores for each box
     after discarding (setting to zero) any score lower than the threshold.
     """
 
-    # TODO: implement using a vectorized method
+    s = class_probs.shape[0]
+    c = class_probs.shape[2]
+    b = box_confs.shape[2]
 
-    class_confs = np.zeros((s, s, b, c))
-    for cell_y in range(s):
-        for cell_x in range(s):
-            for box in range(b):
-                box_confidence = box_confs[cell_y, cell_x, box]
-                for class_index in range(c):
-                    class_probability = class_probs[cell_y, cell_x, class_index]
-                    class_confidence = class_probability * box_confidence
+    # class specific box confidence scores
+    class_box_confs = np.tile(class_probs, (1, 1, b)).reshape(s, s, b, c)
+    class_box_confs = class_box_confs * box_confs[:,:,:,None]
 
-                    if class_confidence >= threshold:
-                        class_confs[cell_y, cell_x, box, class_index] = class_confidence
+    # maximum class confidence score for each box
+    box_classes = np.argmax(class_box_confs, axis=-1)
+    box_class_scores = np.max(class_box_confs, axis=-1)
+    print(box_class_scores)
+
+    print(box_classes.shape)
+
+    filter_mask = box_class_scores >= threshold
+    print(filter_mask)
+
+    # class_confs = np.zeros((s, s, b, c))
+    # for cell_y in range(s):
+    #     for cell_x in range(s):
+    #         for box in range(b):
+    #             box_confidence = box_confs[cell_y, cell_x, box]
+    #             for class_index in range(c):
+    #                 class_probability = class_probs[cell_y, cell_x, class_index]
+    #                 class_confidence = class_probability * box_confidence
+
+    #                 if class_confidence >= threshold:
+    #                     class_confs[cell_y, cell_x, box, class_index] = class_confidence
     
-    return class_confs
+    # return class_confs
 
 def get_area(box):
     """
@@ -172,7 +189,7 @@ def get_iou(box1, box2):
     iou = inter_area / union_area
     return iou
 
-def non_maximal_suppression(class_confs, box_coords, min_iou=0.5):
+def non_maximal_suppression(box_confs, box_coords, min_iou=0.5):
     """
     Applies non maximal suppression and returns an (s, s, b, c) tensor representing
     the modified class confidence scores.
@@ -182,7 +199,6 @@ def non_maximal_suppression(class_confs, box_coords, min_iou=0.5):
     process for the next box with maximum confidence.
     """
 
-    # TODO
     pass
 
 def get_label_from_prediction(pred, img_width, img_height, threshold=0.2, img_depth=3, s=7, b=3, c=20):
@@ -192,7 +208,7 @@ def get_label_from_prediction(pred, img_width, img_height, threshold=0.2, img_de
     'difficult' property is omitted.
     """
 
-    # pred is a vector of length (s * s * (b + 5 + c))
+    # pred is a vector of length (s * s * (b * 5 + c))
     class_probs_end = s*s*c
     box_confs_end = class_probs_end + s*s*b
 
@@ -200,8 +216,11 @@ def get_label_from_prediction(pred, img_width, img_height, threshold=0.2, img_de
     box_confs = pred[class_probs_end:box_confs_end].reshape((s, s, b))
     box_coords = pred[box_confs_end:].reshape((s, s, b, 4))
 
+    # assert np.all(class_probs > 0)
+    # assert np.all(box_confs > 0)
+
     # get thresholded class-specific confidence scores
-    class_confs = threshold_predictions(class_probs, box_confs, threshold=threshold)
+    class_probs, box_confs, box_coords = filter_predictions(class_probs, box_confs, box_coords, threshold=threshold)
 
     # 
     objects = []
